@@ -3,6 +3,7 @@
 **Team:** Toxic | **Track:** Track 2 — Vibing + Grounding
 **Framework:** Cognizant neuro-san / neuro-san-studio (Apache-2.0)
 **LLM:** Anthropic Claude (`claude-sonnet-4-5`), provider-agnostic config
+**Team members:** Amulya A Urs, Tejas Noojile, Varun H S
 
 ---
 
