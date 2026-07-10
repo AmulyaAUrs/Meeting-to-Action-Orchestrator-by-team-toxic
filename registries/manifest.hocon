@@ -1,0 +1,5 @@
+# Active agent registry for the Meeting-to-Action Orchestrator.
+# Only this project's network is served.
+{
+    "meeting_to_action_orchestrator.hocon": true
+}

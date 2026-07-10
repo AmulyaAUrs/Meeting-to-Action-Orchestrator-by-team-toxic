@@ -1,0 +1,20 @@
+# Meeting-to-Action Orchestrator — Python dependencies
+#
+# Built on Cognizant's neuro-san / neuro-san-studio multi-agent framework.
+# Install with:  pip install -r requirements.txt
+
+neuro-san==0.6.71             # Multi-agent orchestration framework (core)
+neuro-san-studio==0.3.7       # Studio runtime + toolbox tools (read_file, web_fetch, ddgs_search) + nsflow UI
+python-dotenv>=1.0,<2.0       # Loads API keys from a .env file
+
+# --- Toolbox tool dependencies ---
+ddgs>=6.0                     # ddgs_search (no API key required)
+beautifulsoup4>=4.12          # web_fetch (HTML parsing)
+aiohttp>=3.9                  # web_fetch (async HTTP)
+pypdf>=4.0                    # web_fetch (PDF text extraction)
+
+# --- LLM provider integrations (install the one matching your API key) ---
+langchain-anthropic>=1.0,<2.0 # Anthropic Claude (default provider)
+langchain-openai>=0.2         # OpenAI (fallback)
+langchain-google-genai>=2.0   # Google Gemini (fallback)
+langchain-mistralai==1.1.2    # Mistral (fallback; preconfigured hackathon option)

@@ -1,0 +1,17 @@
+Sprint Planning Meeting - Synthetic Sample
+Date: 2026-07-01
+Attendees: Priya (Backend Lead), Raj (Docs), Meera (Product Manager), Sam (QA)
+
+Discussion & Decisions:
+- We decided to ship the v2 checkout API this sprint.
+- Priya will finish the API migration by 2026-07-05. This is high priority and blocks the DB upgrade.
+- Priya also agreed to review the security patch by 2026-07-06 (high priority).
+- Priya will lead the DB upgrade by 2026-07-07 (high priority), which depends on the API migration.
+- Raj will update the developer docs by 2026-07-20 (medium priority).
+- Meera will prepare the stakeholder demo by 2026-07-15 (medium priority).
+- Sam will write regression tests for checkout by 2026-07-12 (medium priority).
+- Someone should look into the flaky CI pipeline (no owner assigned yet).
+
+Open questions:
+- Do we need a security sign-off before the DB upgrade?
+- Should the demo include the new analytics dashboard?

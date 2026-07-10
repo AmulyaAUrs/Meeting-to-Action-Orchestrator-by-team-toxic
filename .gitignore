@@ -1,0 +1,26 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Environment / secrets
+.env
+
+# neuro-san / studio runtime output
+logs/
+*.log
+*.db
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Word/Office temp lock files
+~$*

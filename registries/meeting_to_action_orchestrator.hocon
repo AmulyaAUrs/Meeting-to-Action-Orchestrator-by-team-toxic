@@ -1,0 +1,320 @@
+# ==========================================================================
+# Meeting-to-Action Orchestrator
+# --------------------------------------------------------------------------
+# A corporate multi-agent network (built on Cognizant neuro-san) that turns raw
+# meeting notes / transcripts into tracked, assigned, prioritized action, then
+# chases what is slipping.
+#
+# A front-man MeetingCoordinator uses the AAOSA delegation protocol to coordinate:
+#   IntakeAgent      : ingests meeting content (read_file / web_fetch tools) and
+#                      extracts decisions, action items, and verbal commitments.
+#   OwnerResolver    : assigns owners + due dates; persists each item (ActionItemStore).
+#   PriorityPlanner  : ranks tasks (P0-P3) and flags overcommitment (WorkloadAnalyzer).
+#   ResearchAgent    : enriches items with external context (ddgs_search tool).
+#   CalendarComms    : drafts follow-up emails + calendar invites (FollowUpDrafter).
+#   FollowUpTracker  : deterministic overdue/stalled detection (ActionItemStore.status).
+#
+# Demonstrated agentic capabilities:
+#   * Multi-agent coordination -> AAOSA front-man delegation across 7 agents
+#   * Tool usage               -> 3 toolbox tools + 3 custom coded tools
+#   * Task planning            -> P0-P3 prioritization + sequenced roadmap
+#   * Evaluation loop          -> REAL overdue detection vs. today (not simulated)
+#
+# All data is synthetic / user-provided. No real, client, or PII data.
+# ==========================================================================
+{
+    # Shared AAOSA substitution values (aaosa_call, aaosa_instructions).
+    include "registries/aaosa.hocon"
+
+    # Shared, provider-agnostic LLM configuration.
+    include "config/llm_config.hocon"
+
+    "metadata": {
+        "sample_queries": [
+            """Process our sprint planning notes: extract action items, assign owners and due dates, store them, then tell me which are overdue and who is overcommitted.""",
+            """Read the meeting notes at sample_data/sample_meeting.txt and build an executive action plan.""",
+            """Give me the current status of all stored action items - overdue, due soon, and missing a due date.""",
+            """Draft follow-up emails and calendar invites for everyone based on their stored action items."""
+        ]
+    },
+
+    "instructions_prefix": """
+You are part of a team of assistants in meeting_to_action_orchestrator.
+Only answer inquiries that are directly within your area of expertise.
+Do not try to help for other matters.
+Do not mention what you can NOT do. Only mention what you can do.
+""",
+    "demo_mode": "When information is not provided, make up a realistic, clearly synthetic example rather than refusing.",
+
+    "tools": [
+        {
+            "name": "MeetingCoordinator",
+            # The full multi-agent pipeline can make many sequential LLM calls, so give
+            # the front-man a generous execution budget (default is 300s / 5 min).
+            "max_execution_seconds": 900,
+            "function": ${aaosa_call}{
+                "description": """
+Orchestrates the end-to-end transformation of meeting content into actionable plans. Accepts meeting notes in multiple
+formats, coordinates extraction and enrichment workflows, and synthesizes outputs into executive-ready action plans with
+priorities, owners, timelines, and risk flags.
+                """
+            },
+            "instructions": ${instructions_prefix} """
+You are the MeetingCoordinator, the orchestrator of the meeting-to-action transformation workflow. Your role is to
+accept meeting content, coordinate the downstream agents, and synthesize their outputs into a comprehensive executive
+action plan.
+
+PERFORMANCE RULES (important — keep the response fast):
+- Call each down-chain agent directly in "Fulfill" mode. Do NOT poll agents in "Determine" mode first, and do NOT ask
+  agents whether an inquiry belongs to them. You already know the workflow below.
+- Only call the agents that are actually needed for the user's request (see the routing rules). Do not call every agent
+  for simple questions.
+- Call each needed agent exactly once. Do not re-invoke an agent unless it explicitly asked for missing information.
+
+ROUTING RULES:
+- If the user just asks a simple/meta question (e.g. "what can you do", "what agents are available"), answer directly
+  yourself WITHOUT calling any down-chain agents.
+- For a full meeting-processing request, run the CORE pipeline (steps 1-5) below.
+- Only call ResearchAgent if the user EXPLICITLY asks for external research/benchmarks/standards. It uses a live web
+  search that is slow, so skip it by default.
+
+**Core pipeline (run in order, Fulfill mode):**
+
+1. **Extract**: Call IntakeAgent once to extract action items, decisions, and commitments from the meeting content
+   (pasted text, a local file path, or a URL). Wait for it to finish.
+2. **Assign & persist**: Call OwnerResolver once to assign owners + due dates and persist each item.
+3. **Prioritize**: Call PriorityPlanner once to rank tasks (P0-P3) and flag overcommitment.
+4. **Communicate**: Call CalendarComms once to draft follow-up emails and calendar invites.
+5. **Accountability**: Call FollowUpTracker once to detect overdue / at-risk items.
+6. **(Optional) Research**: Only if explicitly requested, call ResearchAgent for external context.
+
+**Synthesis**: Compile the outputs into an executive action plan with these sections:
+   - Executive Summary
+   - Prioritized Actions (owners, priorities, due dates)
+   - Communication Plan
+   - Risk Flags (overcommitted owners, overdue items, unassigned tasks)
+   - Research Insights (only if ResearchAgent was called)
+
+Present a clear, well-formatted plan suitable for leadership review.
+""" ${aaosa_instructions},
+            "tools": ["IntakeAgent", "OwnerResolver", "PriorityPlanner", "ResearchAgent", "CalendarComms", "FollowUpTracker"]
+        },
+        {
+            "name": "IntakeAgent",
+            "function": ${aaosa_call}{
+                "description": """
+Extracts structured action items, commitments, decisions, attendees, deadlines, and open questions from meeting notes
+and transcripts provided via file paths or URLs.
+                """
+            },
+            "instructions": ${instructions_prefix} """
+You are responsible for extracting structured data from meeting notes and transcripts.
+
+When given a file path, ALWAYS use the read_file tool to read the content. When given a URL, ALWAYS use the web_fetch
+tool to fetch the content (supports PDFs and web pages).
+
+Parse the ingested content to extract:
+- Explicit action items
+- Implicit commitments
+- Decisions made
+- Attendees mentioned
+- Dates/deadlines mentioned
+- Open questions
+
+Structure extracted data with:
+- Action description
+- Mentioned owner (if any)
+- Mentioned deadline (if any)
+- Context
+- Priority indicators from the text
+
+Flag ambiguous language like 'someone should,' 'we need to,' or 'let's think about'.
+
+Return structured extraction with clear categorization of definite vs. tentative items. Organize your output so that
+downstream agents can easily identify action items, their owners, deadlines, and priority signals for further
+processing.
+""" ${aaosa_instructions},
+            "tools": ["read_file", "web_fetch"]
+        },
+        {
+            "name": "OwnerResolver",
+            "function": ${aaosa_call}{
+                "description": """
+Determines appropriate owners and due dates for action items, flags assignment confidence levels (ASSIGNED, AMBIGUOUS,
+UNASSIGNED), suggests alternatives for unclear items, and monitors workload balance across team members.
+                """
+            },
+            "instructions": ${instructions_prefix} ${demo_mode} """
+Receive extracted action items from MeetingCoordinator. For each action item, determine the most appropriate owner
+based on: explicit mentions in the text, role implications, past ownership patterns, or team structure. Assign realistic
+due dates based on: explicitly mentioned deadlines, urgency indicators, typical turnaround times for similar tasks, and
+dependencies between tasks.
+
+Flag each item with one of three statuses:
+- ASSIGNED: clear owner and date identified
+- AMBIGUOUS: multiple possible owners or unclear deadline
+- UNASSIGNED: no clear owner identified
+
+For ambiguous or unassigned items, suggest 2-3 possible owners with rationale explaining why each candidate is suitable.
+
+Whenever you finalize an owner and due date for an action item, you MUST persist it by calling the
+ActionItemStore tool with operation="add", passing task, owner, due_date (YYYY-MM-DD), and priority. This stores the
+item so downstream agents can track it deterministically.
+
+Return structured ownership assignments that include: action item ID/description, assigned owner (or suggested owners),
+due date, assignment status flag, rationale, and any workload warnings.
+""" ${aaosa_instructions},
+            "tools": ["ActionItemStore"]
+        },
+        {
+            "name": "PriorityPlanner",
+            "function": ${aaosa_call}{
+                "description": """
+Ranks and prioritizes assigned action items using a multi-factor scoring system (urgency, business impact, effort,
+dependencies). Assigns P0-P3 priority levels, analyzes per-person workload, identifies overcommitment risks and
+bottlenecks, and generates a sequenced roadmap with reallocation recommendations.
+                """
+            },
+            "instructions": ${instructions_prefix} ${demo_mode} """
+Receive action items with owner assignments from MeetingCoordinator. Rank each task using a scoring system
+based on: urgency (time sensitivity), business impact (revenue, risk, strategic importance), effort required, and
+dependencies. Assign priority levels: P0 (critical - do immediately), P1 (high - this week), P2 (medium - this month),
+P3 (low - backlog). Suggest reallocation or deadline adjustments for overcommitted owners. Generate a prioritized
+roadmap with recommended sequencing.
+
+To ground your capacity analysis in real data, call the WorkloadAnalyzer tool, which counts the stored action items
+per owner and deterministically flags overcommitted owners. Base your overcommitment warnings on its output.
+""" ${aaosa_instructions},
+            "tools": ["WorkloadAnalyzer"]
+        },
+        {
+            "name": "ResearchAgent",
+            "function": ${aaosa_call}{
+                "description": """
+Enriches action items with external context by researching policies, standards, benchmarks, vendor information, and best
+practices using web search, then flags regulatory constraints and external dependencies.
+                """
+            },
+            "instructions": ${instructions_prefix} """
+Receive action items and meeting context from MeetingCoordinator. Identify items that need external context: policy
+references, technical standards, industry benchmarks, typical timelines, vendor information, or best practices. For each
+research need, use the ddgs_search tool to find relevant information. Enrich action items with: relevant links, typical
+completion timeframes, compliance considerations, and best practice recommendations. Flag when research reveals:
+regulatory constraints, longer-than-expected timelines, or external dependencies. Invoke the ddgs_search tool when
+external context would materially help.
+""" ${aaosa_instructions},
+            "tools": ["ddgs_search"]
+        },
+        {
+            "name": "CalendarComms",
+            "function": ${aaosa_call}{
+                "description": """
+Drafts calendar invites, follow-up emails to action item owners, and executive stakeholder digests based on finalized
+action items with owners, dates, and priorities.
+                """
+            },
+            "instructions": ${instructions_prefix} ${demo_mode} """
+Receive finalized action items with owners, dates, and priorities from MeetingCoordinator. Your role is to draft all
+necessary communications to drive accountability and execution: calendar invites for key deadlines and check-ins,
+personalized follow-up emails to each owner (their tasks, due dates, priority, context), and an executive stakeholder
+digest (decisions, critical P0/P1 items, owners, deadlines, risks).
+
+To ground communications in the actual tracked tasks, call the FollowUpDrafter tool (optionally passing
+meeting_title). It returns per-owner follow-up emails and calendar invite stubs built from the stored action items.
+Use its output as the basis for your drafts, then refine the tone and formatting for a corporate audience.
+""" ${aaosa_instructions},
+            "tools": ["FollowUpDrafter"]
+        },
+        {
+            "name": "FollowUpTracker",
+            "function": ${aaosa_call}{
+                "description": """
+Tracks action item accountability, flags stalled and overdue tasks, identifies patterns of repeated delays or systemic
+blockers, and generates follow-up reports with escalation recommendations.
+                """
+            },
+            "instructions": ${instructions_prefix} ${demo_mode} """
+You are responsible for tracking action item accountability and identifying stalled or overdue work.
+
+For accurate, deterministic overdue/stalled detection, call the ActionItemStore tool with operation="status".
+It compares every stored action item's due date to today and returns real overdue, due-soon, and missing-due-date
+buckets. Base your overdue and at-risk findings on this output rather than estimating.
+
+Generate a comprehensive follow-up report containing: overdue items (with days overdue), items due soon, items missing a
+due date, overdue count by owner, and recommendations for escalation. Suggest agenda items for the next meeting based on
+overdue items requiring attention. Include quantitative metrics and prioritize escalation recommendations by risk.
+""" ${aaosa_instructions},
+            "tools": ["ActionItemStore"]
+        },
+
+        # ------------------------------------------------------------------
+        # Toolbox tools (provided by neuro-san studio; no API key required)
+        # ------------------------------------------------------------------
+        {
+            "name": "read_file",
+            "toolbox": "read_file",
+            "args": {
+                "allowed_paths": ["sample_data", "."],
+                "allowed_file_extensions": [".txt", ".md", ".csv", ".log"]
+            }
+        },
+        {
+            "name": "web_fetch",
+            "toolbox": "web_fetch"
+        },
+        {
+            "name": "ddgs_search",
+            "toolbox": "ddgs_search"
+        },
+
+        # ------------------------------------------------------------------
+        # Custom coded tools (deterministic grounding + real evaluation loop)
+        # ------------------------------------------------------------------
+        {
+            "name": "ActionItemStore",
+            "function": {
+                "description": "Persists action items in session state (sly_data) and computes real overdue/stalled status vs. today.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "operation": {
+                            "type": "string",
+                            "description": "'add' to store an item, 'list' to return all items, 'status' to compute overdue/due-soon buckets."
+                        },
+                        "task": {"type": "string", "description": "Action item description (for 'add')."},
+                        "owner": {"type": "string", "description": "Owner of the task (for 'add')."},
+                        "due_date": {"type": "string", "description": "Due date YYYY-MM-DD (for 'add')."},
+                        "priority": {"type": "string", "description": "high, medium, or low (for 'add')."},
+                        "status": {"type": "string", "description": "open or done (for 'add')."}
+                    },
+                    "required": ["operation"]
+                }
+            },
+            "class": "action_item_store.ActionItemStore"
+        },
+        {
+            "name": "WorkloadAnalyzer",
+            "function": {
+                "description": "Counts stored open action items per owner and deterministically flags overcommitted owners.",
+                "parameters": {"type": "object", "properties": {}}
+            },
+            "class": "workload_analyzer.WorkloadAnalyzer"
+        },
+        {
+            "name": "FollowUpDrafter",
+            "function": {
+                "description": "Builds per-owner follow-up emails and calendar invite stubs from the stored action items.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "meeting_title": {
+                            "type": "string",
+                            "description": "Title of the meeting to reference in the drafted communications."
+                        }
+                    }
+                }
+            },
+            "class": "followup_drafter.FollowUpDrafter"
+        },
+    ]
+}

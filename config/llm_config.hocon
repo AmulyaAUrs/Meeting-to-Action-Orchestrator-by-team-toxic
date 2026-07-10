@@ -1,0 +1,26 @@
+# Shared LLM configuration for the Meeting-to-Action Orchestrator.
+#
+# Provider-agnostic fallback chain: neuro-san automatically culls providers whose
+# library or API key is not available, so the network runs on whichever key the
+# operator sets in the environment. Providers are tried top to bottom.
+#
+#   ANTHROPIC_API_KEY  -> anthropic (claude-sonnet-4-5)
+#   OPENAI_API_KEY     -> openai    (gpt-4o)
+#   GEMINI_API_KEY     -> gemini    (gemini-2.0-flash)
+#   MISTRAL_API_KEY    -> mistral   (mistral-medium-latest)
+#
+# Providers are specified by neuro-san SHORTNAME so neuro-san can automatically
+# cull any provider whose API key is not present in the environment — only
+# providers you actually have a key for are ever tried.
+#
+# This project was developed and tested with Anthropic Claude. To add a fallback,
+# set the matching env var and uncomment the provider below:
+#   OPENAI_API_KEY  -> {"class": "openai", "model_name": "gpt-4o"}
+#   GEMINI_API_KEY  -> {"class": "gemini", "model_name": "gemini-2.0-flash"}
+{
+    "llm_config": {
+        "class": "anthropic",
+        "model_name": "claude-sonnet-4-5",
+        "temperature": 0
+    }
+}
